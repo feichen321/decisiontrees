@@ -1,0 +1,166 @@
+---
+title: "DecisionTrees4ContinuousVariablePrediction"
+author: "Fei Chen"
+date: "8/29/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 
+```{r}
+library(MASS)
+set.seed(1)
+library(tree)
+set.seed(1)
+train = sample(1:nrow(Boston), nrow(Boston)/2)
+tree.boston=tree(medv~.,Boston,subset=train)
+summary(tree.boston)
+```
+
+```{r}
+plot(tree.boston)
+text(tree.boston,pretty=0)
+```
+
+
+Some observations:
+
+ * The tree grown to full depth has 8 leaves and only three of the variables (lstat, rm and dis) have been used to construct this tree.
+
+ * The deviance reported here is simply the sum of squared errors for the tree.
+
+ * The lstat variable measures the percentage of individuals with lower socioeconomic status. The tree shows that higher values of lstat correspond to lower house values.
+
+ * The tree predicts a median house price of $46, 380 for larger homes (rm >= 7.437) in which residents have higher socio-economic status (lstat < 9.715).
+
+* Since the tree was grown to full depth, it may be too variable (i.e. has relatively high variance and low bias and may be overfitting the data).
+
+ * We now use 10-fold cross validation ( using cv.tree() function ) in order to determine the optimal level of tree complexity. This will help us decide whether pruning the tree will improve performance.
+
+ * cv.tree() function reports the number of terminal nodes of each tree considered (in variable size as shown in next output) as well as the corresponding error rate and the value of the cost-comlexity parameter [explain cost-complexity parameter].
+
+```{r}
+cv.boston=cv.tree(tree.boston); cv.boston
+```
+
+Note that dev in the above output corresponds to the cross-validation error. The lowest dev corresponds to the tree with 8 leaves.
+
+We can also see this in the following plot.
+
+```{r}
+plot(cv.boston$size,cv.boston$dev,type='b')
+```
+
+Although the most complex tree is selected by cross-validation (the lowest error rate corresponds to the most complex tree with 8 leaves), if we wanted to prune the tree, we would do it as follows, using the prune.tree() function.
+
+```{r}
+prune.boston=prune.tree(tree.boston,best=5)
+#summary(prune.boston)
+#cv.tree(tree.boston,,prune.tree)$dev
+plot(prune.boston)
+text(prune.boston,pretty=0)
+```
+
+But ultimately, we go with the cross-validation results and use the unpruned tree to make predictions on the test set.
+
+```{r}
+yhat=predict(tree.boston,newdata=Boston[-train,])
+boston.test=Boston[-train,"medv"]
+#plot(yhat,boston.test)
+#abline(0,1)
+mean((yhat-boston.test)^2)
+```
+
+So the test set MSE for the regression tree is 25.05, with its square root around 5.005, meaning that this model gives predictions that are within around $5, 005 of the true median home value.
+
+Now we look to other techniques, like random forests and boosting, to see if better results can be obtained.
+
+```{r}
+library(randomForest)
+```
+
+```{r}
+set.seed(1)
+bag.boston=randomForest(medv~.,data=Boston,subset=train,mtry=13,importance=TRUE)
+bag.boston
+```
+
+The argument mtry=13 indicates that all 13 predictors should be considered for each split of the tree. This means that bagging should be done.
+
+How good is the performance of bagging on the test set?
+
+```{r}
+yhat.bag = predict(bag.boston,newdata=Boston[-train,])
+plot(yhat.bag, boston.test)
+abline(0,1)
+```
+
+```{r}
+mean((yhat.bag-boston.test)^2)
+```
+
+
+This is quite an improvement over trees - almost half the MSE obtained with the optimally-pruned single tree regression.
+
+But we can experiment further by changeing the number of trees grown by randomForest() using the ntree argument:
+
+```{r}
+bag.boston=randomForest(medv~.,data=Boston,subset=train,mtry=13,ntree=25)
+yhat.bag = predict(bag.boston,newdata=Boston[-train,])
+mean((yhat.bag-boston.test)^2)
+```
+
+```{r}
+rf.boston=randomForest(medv~.,data=Boston,subset=train,mtry=6,importance=TRUE)
+yhat.rf = predict(rf.boston,newdata=Boston[-train,])
+mean((yhat.rf-boston.test)^2)
+```
+
+Now the MSE is down to 11.21. Thus random forests are better than bagging in thie example.
+
+Using the importance() function we can view the importance of each variable.
+
+```{r}
+importance(rf.boston)
+```
+
+```{r fig1, fig.width = 3.0, fig.asp = 0.8}
+varImpPlot(rf.boston)
+```
+
+The results indicate that across all trees considered in the random forest, lstat (the wealth level) and rm (house size) are by far the two most important variables.
+
+Now we try yet another method:
+
+Boosting
+
+```{r}
+library(gbm)
+```
+
+```{r}
+set.seed(1)
+boost.boston=gbm(medv~.,data=Boston[train,],distribution="gaussian",n.trees=5000,interaction.depth=4)
+summary(boost.boston)
+```
+
+```{r}
+par(mfrow=c(1,2))
+plot(boost.boston,i="rm")
+plot(boost.boston,i="lstat")
+```
+
+```{r}
+yhat.boost=predict(boost.boston,newdata=Boston[-train,],n.trees=5000)
+mean((yhat.boost-boston.test)^2)
+```
+
+```{r}
+boost.boston=gbm(medv~.,data=Boston[train,],distribution="gaussian",n.trees=5000,interaction.depth=4,shrinkage=0.2,verbose=F)
+yhat.boost=predict(boost.boston,newdata=Boston[-train,],n.trees=5000)
+mean((yhat.boost-boston.test)^2)
+```
+
